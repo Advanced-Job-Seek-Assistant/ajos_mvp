@@ -3,11 +3,11 @@ version: '3.9'
 services:
   db:
     build:
-      context: ./ajos_db
+      context: ./db
       dockerfile: Dockerfile.pg
     restart: always
     env_file:
-      - ./ajos_db/.env
+      - ./db/.env
     volumes:
       - /srv/postgres_data:/var/lib/postgresql/data
     networks:
@@ -15,12 +15,12 @@ services:
 
   init-db:
     build:
-      context: ./ajos_db
+      context: ./db
       dockerfile: Dockerfile.pg
     depends_on:
       - db
     env_file:
-      - ./ajos_db/.env
+      - ./db/.env
     entrypoint: >
       sh -c '
         until pg_isready -h db -U "$POSTGRES_USER"; do
