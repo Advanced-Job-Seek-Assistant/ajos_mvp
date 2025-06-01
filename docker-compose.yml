@@ -1,17 +1,13 @@
-version: '3.8'
+version: '3.9'
 
 services:
   db:
     build:
-      context: .
+      context: ./ajos_db
       dockerfile: Dockerfile.pg
     restart: always
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    # ports:
-    #   - "5488:5432"
+    env_file:
+      - ./ajos_db/.env
     volumes:
       - /srv/postgres_data:/var/lib/postgresql/data
     networks:
@@ -19,14 +15,12 @@ services:
 
   init-db:
     build:
-      context: .
+      context: ./ajos_db
       dockerfile: Dockerfile.pg
     depends_on:
       - db
-    environment:
-      PGPASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_DB: ${POSTGRES_DB}
+    env_file:
+      - ./ajos_db/.env
     entrypoint: >
       sh -c '
         until pg_isready -h db -U "$POSTGRES_USER"; do
@@ -37,6 +31,30 @@ services:
           -c "CREATE EXTENSION IF NOT EXISTS postgis;" \
           -c "CREATE EXTENSION IF NOT EXISTS vector;"
       '
+    networks:
+      - ajos-network
+
+  backend:
+    build: ./backend
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - db
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    networks:
+      - ajos-network
+
+  frontend:
+    build: ./frontend
+    env_file:
+      - ./frontend/.env
+    depends_on:
+      - backend
+    command: ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    ports:
+      - "8501:8501"
     networks:
       - ajos-network
 
