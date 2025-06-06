@@ -98,10 +98,9 @@ if st.button("Search"):
 # --- REFINEMENT FLOW ---
 if st.session_state.get("refine_suggestions"):
     st.warning("Your query is too general. Please clarify:")
-    # Добавляем опцию "Other..."
     options = st.session_state["refine_suggestions"] + ["Other..."]
     option = st.radio("Pick a profession to search:", options, key="refine_radio_option")
-    
+
     custom_value = ""
     if option == "Other...":
         custom_value = st.text_input("Or enter your own profession:", key="refine_custom_input")
@@ -109,18 +108,32 @@ if st.session_state.get("refine_suggestions"):
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Search this profession"):
-            # Если выбран кастомный вариант, ищем по нему, иначе по выбранному из списка
             if option == "Other...":
                 if custom_value.strip():
                     run_search(custom_value.strip(), refined=True)
+                    # <--- Вот здесь сбрось refine state до rerun
+                    st.session_state["refine_suggestions"] = None
+                    st.session_state["refine_query"] = ""
+                    st.session_state["allow_raw_search"] = False
+                    st.rerun()
                 else:
                     st.warning("Please enter a profession!")
             else:
                 run_search(option.split(" (")[0], refined=True)
+                # <--- Вот здесь сбрось refine state до rerun
+                st.session_state["refine_suggestions"] = None
+                st.session_state["refine_query"] = ""
+                st.session_state["allow_raw_search"] = False
+                st.rerun()
     with col2:
         if st.session_state.get("allow_raw_search", False):
             if st.button("Search as is"):
                 run_search(st.session_state["refine_query"], refined=True)
+                # <--- Вот здесь сбрось refine state до rerun
+                st.session_state["refine_suggestions"] = None
+                st.session_state["refine_query"] = ""
+                st.session_state["allow_raw_search"] = False
+                st.rerun()
     st.stop()
 
 # --- CHARTS IF DATA LOADED ---

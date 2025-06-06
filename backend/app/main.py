@@ -8,9 +8,7 @@ from app.db import get_connection
 from app.services import translate_en_to_sv, translate_sv_to_en
 from app.autocomplete import occupation_labels_sv, autocomplete_occupation_labels
 from app.occupation_labels_loader import load_occupation_labels
-from app.services import is_too_general
-from fastapi.responses import JSONResponse
-from app.manual_translation import MANUAL_FIX
+from app.services import is_too_general, get_swedish_profession
 from collections import defaultdict
 
 
@@ -65,34 +63,43 @@ def db_check():
 @app.get("/translate")
 def translate(text: str):
     try:
-        result = translate_en_to_sv(text)
+        result = get_swedish_profession(text)
         return {"original": text, "swedish": result}
     except Exception as e:
         logging.error(f"Translation failed: {e}")
         return {"error": str(e)}
 
-def get_swedish_profession(query: str):
-    # 1. Сначала ищем точный матч
-    if query in MANUAL_FIX:
-        logging.info(f"Swedish translation for '{query}' found in MANUAL_FIX (exact match): {MANUAL_FIX[query]}")
-        return MANUAL_FIX[query]
-    # 2. Пробуем с тайтлкейсом (например, 'Accountant')
-    elif query.title() in MANUAL_FIX:
-        logging.info(f"Swedish translation for '{query}' found in MANUAL_FIX (title match): {MANUAL_FIX[query.title()]}")
-        return MANUAL_FIX[query.title()]
-    # 3. Если не нашли, используем генератор
-    else:
-        swedish = translate_en_to_sv(query)
-        logging.info(f"Swedish translation for '{query}' generated via translate_en_to_sv: {swedish}")
-        return swedish
-
 
 @app.get("/search")
-def search(query: str):
+def search(query: str, refined: bool = False):
+    global occupation_labels_sv  # если ты их так загружаешь
+
     swedish = get_swedish_profession(query)
     english = query.strip()
+
+    # Шаг 1. Проверяем на слишком общий запрос (если не refined)
+    if not refined and is_too_general(query, occupation_labels_sv):
+        # Генерируем подсказки для уточнения (autocomplete, как в multi_search)
+        suggestions_sv = autocomplete_occupation_labels(swedish)[:10]
+        suggestions = []
+        for lbl in suggestions_sv:
+            en = translate_sv_to_en(lbl)
+            if en and en.lower() != lbl.lower():
+                suggestions.append(f"{en} ({lbl})")
+            else:
+                suggestions.append(lbl)
+        return {
+            "need_refine": True,
+            "suggestions": suggestions,
+            "original_query": query,
+            "allow_raw_search": True  # или False, если не разрешаете прямой поиск
+        }
+
+    # Шаг 2. Продолжаем обычный поиск (оставляем оба запроса)
+    
     conn = get_connection()
     cur = conn.cursor()
+
     # Первый запрос — английский
     sql_en = """
         SELECT to_char(date_trunc('week', published_at), 'IYYY-IW') AS week, COUNT(*) as count
@@ -100,8 +107,12 @@ def search(query: str):
         WHERE language = 'en' AND tsv_en @@ plainto_tsquery('english', %s)
         GROUP BY week
     """
+    sql_start = time.time()
     cur.execute(sql_en, (english,))
     data_en = cur.fetchall()
+    sql_end = time.time()
+    logging.info(f"SQL EN query {query} time: {sql_end - sql_start:.3f} seconds")
+
     # Второй запрос — шведский
     sql_sv = """
         SELECT to_char(date_trunc('week', published_at), 'IYYY-IW') AS week, COUNT(*) as count
@@ -109,23 +120,26 @@ def search(query: str):
         WHERE language = 'sv' AND tsv_sv @@ plainto_tsquery('swedish', %s)
         GROUP BY week
     """
+    sql_start = time.time()
     cur.execute(sql_sv, (swedish,))
     data_sv = cur.fetchall()
+    sql_end = time.time()
+    logging.info(f"SQL SV {swedish} query time: {sql_end - sql_start:.3f} seconds")
+
     cur.close()
     conn.close()
 
-    # Объединяем динамики по неделям
-    
+    # Объединяем результаты по неделям
     week_counts = defaultdict(int)
     for week, count in data_en + data_sv:
         week_counts[week] += count
-    # Формируем список для фронта, сортируем по неделям
     result = [{"week": week, "count": week_counts[week]} for week in sorted(week_counts)]
     return {
         "query": query,
         "swedish": swedish,
         "dynamics": result
     }
+
 
 @app.get("/autocomplete")
 def autocomplete(query: str):
