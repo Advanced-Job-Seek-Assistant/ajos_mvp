@@ -24,6 +24,6 @@ jobs:
           ssh -i ~/.ssh/id_ed25519 root@157.180.120.150 "
             cd /root/AJOS/ajos_mvp &&
             git pull origin master &&
-            docker compose down &&
-            docker compose up -d --build
+            docker-compose down &&
+            docker-compose up -d --build
           "
