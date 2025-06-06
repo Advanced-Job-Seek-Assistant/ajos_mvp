@@ -10,6 +10,8 @@ from app.autocomplete import occupation_labels_sv, autocomplete_occupation_label
 from app.occupation_labels_loader import load_occupation_labels
 from app.services import is_too_general
 from fastapi.responses import JSONResponse
+from app.manual_translation import MANUAL_FIX
+from collections import defaultdict
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -69,73 +71,56 @@ def translate(text: str):
         logging.error(f"Translation failed: {e}")
         return {"error": str(e)}
 
+def get_swedish_profession(query: str):
+    # 1. Сначала ищем точный матч
+    if query in MANUAL_FIX:
+        logging.info(f"Swedish translation for '{query}' found in MANUAL_FIX (exact match): {MANUAL_FIX[query]}")
+        return MANUAL_FIX[query]
+    # 2. Пробуем с тайтлкейсом (например, 'Accountant')
+    elif query.title() in MANUAL_FIX:
+        logging.info(f"Swedish translation for '{query}' found in MANUAL_FIX (title match): {MANUAL_FIX[query.title()]}")
+        return MANUAL_FIX[query.title()]
+    # 3. Если не нашли, используем генератор
+    else:
+        swedish = translate_en_to_sv(query)
+        logging.info(f"Swedish translation for '{query}' generated via translate_en_to_sv: {swedish}")
+        return swedish
+
+
 @app.get("/search")
-def search(query: str, refined: bool = False):
-    global occupation_labels_sv  # если ты их так загружаешь
-    
-    # Step 1: Translation
-    t1 = time.time()
-    swedish = translate_en_to_sv(query)
+def search(query: str):
+    swedish = get_swedish_profession(query)
     english = query.strip()
-    t2 = time.time()
-    logging.info(f"Translation time: {t2 - t1:.3f} seconds")
-
-    # --- Новый шаг: refine ---
-    if not refined and is_too_general(query, occupation_labels_sv):
-        suggestions_sv = autocomplete_occupation_labels(swedish)[:10]
-        suggestions = []
-        for lbl in suggestions_sv:
-            en = translate_sv_to_en(lbl)
-            if en and en.lower() != lbl.lower():
-                suggestions.append(f"{en} ({lbl})")
-            else:
-                suggestions.append(lbl)
-        return JSONResponse(content={
-            "need_refine": True,
-            "suggestions": suggestions,
-            "original_query": query,
-            "allow_raw_search": True
-        })
-    
-    # --- Дальше твой текущий код ---
-    global_start = time.time()
-    logging.info(f"Received /search request with query: '{query}'")
-
-    
-
-    # Step 2: SQL query
     conn = get_connection()
     cur = conn.cursor()
-    sql = """
-        SELECT
-            to_char(date_trunc('week', published_at), 'IYYY-IW') AS week,
-            COUNT(*) as count
+    # Первый запрос — английский
+    sql_en = """
+        SELECT to_char(date_trunc('week', published_at), 'IYYY-IW') AS week, COUNT(*) as count
         FROM vacancies
-        WHERE (
-            (language = 'en' AND tsv_en @@ plainto_tsquery('english', %s))
-            OR
-            (language = 'sv' AND tsv_sv @@ plainto_tsquery('swedish', %s))
-        )
+        WHERE language = 'en' AND tsv_en @@ plainto_tsquery('english', %s)
         GROUP BY week
-        ORDER BY week;
     """
-    sql_start = time.time()
-    cur.execute(sql, (english, swedish))
-    data = cur.fetchall()
-    sql_end = time.time()
+    cur.execute(sql_en, (english,))
+    data_en = cur.fetchall()
+    # Второй запрос — шведский
+    sql_sv = """
+        SELECT to_char(date_trunc('week', published_at), 'IYYY-IW') AS week, COUNT(*) as count
+        FROM vacancies
+        WHERE language = 'sv' AND tsv_sv @@ plainto_tsquery('swedish', %s)
+        GROUP BY week
+    """
+    cur.execute(sql_sv, (swedish,))
+    data_sv = cur.fetchall()
     cur.close()
     conn.close()
-    logging.info(f"SQL query time: {sql_end - sql_start:.3f} seconds")
 
-    # Step 3: Result formatting
-    format_start = time.time()
-    result = [{"week": row[0], "count": row[1]} for row in data]
-    format_end = time.time()
-    logging.info(f"Result formatting time: {format_end - format_start:.3f} seconds")
-
-    total_time = time.time() - global_start
-    logging.info(f"Total /search processing time: {total_time:.3f} seconds")
-
+    # Объединяем динамики по неделям
+    
+    week_counts = defaultdict(int)
+    for week, count in data_en + data_sv:
+        week_counts[week] += count
+    # Формируем список для фронта, сортируем по неделям
+    result = [{"week": week, "count": week_counts[week]} for week in sorted(week_counts)]
     return {
         "query": query,
         "swedish": swedish,
