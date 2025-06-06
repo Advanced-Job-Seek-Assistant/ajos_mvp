@@ -31,5 +31,5 @@ st.markdown("---")
 st.markdown("""
 ---
 Created by **AJOS Team**, 2025  
-Contact: [ajos@example.com](mailto:ajos@example.com)
+Contact: [ajos@example.com](mailto:contact@ajos.com)
 """)
