@@ -72,35 +72,49 @@ def translate(text: str):
 
 @app.get("/search")
 def search(query: str, refined: bool = False):
-    global occupation_labels_sv  # если ты их так загружаешь
+    """
+    If refined=False (default), check if the query is too general and suggest refinement if needed.
+    If refined=True, always do the search, regardless of generality.
+    """
+    query = query.strip()
+    if not query:
+        return {"error": "Empty query."}
 
     swedish = get_swedish_profession(query)
-    english = query.strip()
-
-    # Шаг 1. Проверяем на слишком общий запрос (если не refined)
-    if not refined and is_too_general(query, occupation_labels_sv):
-        # Генерируем подсказки для уточнения (autocomplete, как в multi_search)
-        suggestions_sv = autocomplete_occupation_labels(swedish)[:10]
-        suggestions = []
-        for lbl in suggestions_sv:
-            en = translate_sv_to_en(lbl)
-            if en and en.lower() != lbl.lower():
-                suggestions.append(f"{en} ({lbl})")
-            else:
-                suggestions.append(lbl)
-        return {
-            "need_refine": True,
-            "suggestions": suggestions,
-            "original_query": query,
-            "allow_raw_search": True  # или False, если не разрешаете прямой поиск
-        }
-
-    # Шаг 2. Продолжаем обычный поиск (оставляем оба запроса)
     
+    if not refined:
+        # Only for the first request: check for generality
+        if is_too_general(query, occupation_labels_sv):
+            # Return refinement suggestions
+            suggestions_sv = autocomplete_occupation_labels(swedish)[:10]
+            suggestions = []
+            for lbl in suggestions_sv:
+                en = translate_sv_to_en(lbl)
+                if en and en.lower() != lbl.lower():
+                    suggestions.append(f"{en} ({lbl})")
+                else:
+                    suggestions.append(lbl)
+            return {
+                "need_refine": True,
+                "suggestions": suggestions,
+                "original_query": query,
+                "allow_raw_search": True  # if you want to allow "search as is"
+            }
+
+    # If refined or not too general — just do the search
+    return perform_search(query, swedish)
+
+def perform_search(query: str, swedish: str):
+    """
+    Performs the search:
+    1. Query both English and Swedish indexes in the database.
+    2. Merge results by week and return dynamics.
+    """
     conn = get_connection()
     cur = conn.cursor()
+    english = query.strip()
 
-    # Первый запрос — английский
+    # English query
     sql_en = """
         SELECT to_char(date_trunc('week', published_at), 'IYYY-IW') AS week, COUNT(*) as count
         FROM vacancies
@@ -111,9 +125,9 @@ def search(query: str, refined: bool = False):
     cur.execute(sql_en, (english,))
     data_en = cur.fetchall()
     sql_end = time.time()
-    logging.info(f"SQL EN query {query} time: {sql_end - sql_start:.3f} seconds")
+    logging.info(f"SQL EN query '{query}' time: {sql_end - sql_start:.3f} seconds")
 
-    # Второй запрос — шведский
+    # Swedish query
     sql_sv = """
         SELECT to_char(date_trunc('week', published_at), 'IYYY-IW') AS week, COUNT(*) as count
         FROM vacancies
@@ -124,16 +138,17 @@ def search(query: str, refined: bool = False):
     cur.execute(sql_sv, (swedish,))
     data_sv = cur.fetchall()
     sql_end = time.time()
-    logging.info(f"SQL SV {swedish} query time: {sql_end - sql_start:.3f} seconds")
+    logging.info(f"SQL SV query '{swedish}' time: {sql_end - sql_start:.3f} seconds")
 
     cur.close()
     conn.close()
 
-    # Объединяем результаты по неделям
+    # Merge results by week
     week_counts = defaultdict(int)
     for week, count in data_en + data_sv:
         week_counts[week] += count
     result = [{"week": week, "count": week_counts[week]} for week in sorted(week_counts)]
+
     return {
         "query": query,
         "swedish": swedish,
