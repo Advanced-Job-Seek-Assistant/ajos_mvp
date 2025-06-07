@@ -278,12 +278,12 @@ def multi_search(queries: List[str] = Query(..., min_length=1, max_length=3), re
 @app.get("/refine_query")
 def refine_query(query: str = Query(..., description="User search input in English")):
     # Переводим запрос на шведский
-    swedish = translate_en_to_sv(query)
+    swedish = get_swedish_profession(query)
     matches = []
     for sv_label in occupation_labels_sv:
         en_label = translate_sv_to_en(sv_label)
         # Проверяем: запрос встречается в английском варианте (или в шведском, если перевод плохой)
-        if query.lower() in en_label.lower() or query.lower() in sv_label.lower():
+        if query.lower() in en_label.lower() or swedish.lower() in sv_label.lower():
             # Формируем красивый вывод
             if en_label.lower() != sv_label.lower():
                 matches.append(f"{en_label} ({sv_label})")
