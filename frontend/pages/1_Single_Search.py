@@ -1,4 +1,5 @@
-# streamlit: name = Search
+# streamlit: name = 🔎 Individual Search
+# streamlit: icon = 🔎
 
 import pandas as pd
 import streamlit as st
@@ -27,7 +28,7 @@ if "query_text" not in st.session_state:
 if "pending_query_text" in st.session_state:
     st.session_state["query_text"] = st.session_state.pop("pending_query_text")
 
-st.title("Swedish Job Analytics MVP")
+st.title("Job Postings Analytics")
 st.markdown("#### Find job posting dynamics by profession (2020-2024)")
 
 # --- Main text input, bound to session_state

@@ -1,4 +1,5 @@
-# streamlit: name = Compare Professions
+# streamlit: name = 🔀 Compare Professions
+# streamlit: icon = 🔀
 
 import pandas as pd
 import streamlit as st
