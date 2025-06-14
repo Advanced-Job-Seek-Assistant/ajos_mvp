@@ -8,9 +8,7 @@ from app.db import get_connection
 from app.services import translate_en_to_sv, translate_sv_to_en
 from app.autocomplete import occupation_labels_sv, autocomplete_occupation_labels
 from app.occupation_labels_loader import load_occupation_labels
-from app.services import is_too_general
-from fastapi.responses import JSONResponse
-from app.manual_translation import MANUAL_FIX
+from app.services import is_too_general, get_swedish_profession
 from collections import defaultdict
 
 
@@ -65,67 +63,98 @@ def db_check():
 @app.get("/translate")
 def translate(text: str):
     try:
-        result = translate_en_to_sv(text)
+        result = get_swedish_profession(text)
         return {"original": text, "swedish": result}
     except Exception as e:
         logging.error(f"Translation failed: {e}")
         return {"error": str(e)}
 
-def get_swedish_profession(query: str):
-    # 1. Сначала ищем точный матч
-    if query in MANUAL_FIX:
-        logging.info(f"Swedish translation for '{query}' found in MANUAL_FIX (exact match): {MANUAL_FIX[query]}")
-        return MANUAL_FIX[query]
-    # 2. Пробуем с тайтлкейсом (например, 'Accountant')
-    elif query.title() in MANUAL_FIX:
-        logging.info(f"Swedish translation for '{query}' found in MANUAL_FIX (title match): {MANUAL_FIX[query.title()]}")
-        return MANUAL_FIX[query.title()]
-    # 3. Если не нашли, используем генератор
-    else:
-        swedish = translate_en_to_sv(query)
-        logging.info(f"Swedish translation for '{query}' generated via translate_en_to_sv: {swedish}")
-        return swedish
-
 
 @app.get("/search")
-def search(query: str):
+def search(query: str, refined: bool = False):
+    """
+    If refined=False (default), check if the query is too general and suggest refinement if needed.
+    If refined=True, always do the search, regardless of generality.
+    """
+    query = query.strip()
+    if not query:
+        return {"error": "Empty query."}
+
     swedish = get_swedish_profession(query)
-    english = query.strip()
+    
+    if not refined:
+        # Only for the first request: check for generality
+        if is_too_general(query, occupation_labels_sv):
+            # Return refinement suggestions
+            suggestions_sv = autocomplete_occupation_labels(swedish)[:10]
+            suggestions = []
+            for lbl in suggestions_sv:
+                en = translate_sv_to_en(lbl)
+                if en and en.lower() != lbl.lower():
+                    suggestions.append(f"{en} ({lbl})")
+                else:
+                    suggestions.append(lbl)
+            return {
+                "need_refine": True,
+                "suggestions": suggestions,
+                "original_query": query,
+                "allow_raw_search": True  # if you want to allow "search as is"
+            }
+
+    # If refined or not too general — just do the search
+    return perform_search(query, swedish)
+
+def perform_search(query: str, swedish: str):
+    """
+    Performs the search:
+    1. Query both English and Swedish indexes in the database.
+    2. Merge results by week and return dynamics.
+    """
     conn = get_connection()
     cur = conn.cursor()
-    # Первый запрос — английский
+    english = query.strip()
+
+    # English query
     sql_en = """
         SELECT to_char(date_trunc('week', published_at), 'IYYY-IW') AS week, COUNT(*) as count
         FROM vacancies
         WHERE language = 'en' AND tsv_en @@ plainto_tsquery('english', %s)
         GROUP BY week
     """
+    sql_start = time.time()
     cur.execute(sql_en, (english,))
     data_en = cur.fetchall()
-    # Второй запрос — шведский
+    sql_end = time.time()
+    logging.info(f"SQL EN query '{query}' time: {sql_end - sql_start:.3f} seconds")
+
+    # Swedish query
     sql_sv = """
         SELECT to_char(date_trunc('week', published_at), 'IYYY-IW') AS week, COUNT(*) as count
         FROM vacancies
         WHERE language = 'sv' AND tsv_sv @@ plainto_tsquery('swedish', %s)
         GROUP BY week
     """
+    sql_start = time.time()
     cur.execute(sql_sv, (swedish,))
     data_sv = cur.fetchall()
+    sql_end = time.time()
+    logging.info(f"SQL SV query '{swedish}' time: {sql_end - sql_start:.3f} seconds")
+
     cur.close()
     conn.close()
 
-    # Объединяем динамики по неделям
-    
+    # Merge results by week
     week_counts = defaultdict(int)
     for week, count in data_en + data_sv:
         week_counts[week] += count
-    # Формируем список для фронта, сортируем по неделям
     result = [{"week": week, "count": week_counts[week]} for week in sorted(week_counts)]
+
     return {
         "query": query,
         "swedish": swedish,
         "dynamics": result
     }
+
 
 @app.get("/autocomplete")
 def autocomplete(query: str):
@@ -264,12 +293,12 @@ def multi_search(queries: List[str] = Query(..., min_length=1, max_length=3), re
 @app.get("/refine_query")
 def refine_query(query: str = Query(..., description="User search input in English")):
     # Переводим запрос на шведский
-    swedish = translate_en_to_sv(query)
+    swedish = get_swedish_profession(query)
     matches = []
     for sv_label in occupation_labels_sv:
         en_label = translate_sv_to_en(sv_label)
         # Проверяем: запрос встречается в английском варианте (или в шведском, если перевод плохой)
-        if query.lower() in en_label.lower() or query.lower() in sv_label.lower():
+        if query.lower() in en_label.lower() or swedish.lower() in sv_label.lower():
             # Формируем красивый вывод
             if en_label.lower() != sv_label.lower():
                 matches.append(f"{en_label} ({sv_label})")

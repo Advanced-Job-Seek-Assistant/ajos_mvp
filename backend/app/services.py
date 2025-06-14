@@ -2,6 +2,7 @@ import os
 import logging
 import argostranslate.translate
 from app.common_professions import COMMON_PROFESSIONS
+from app.manual_translation import MANUAL_FIX
 
 # Setup logging
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
@@ -99,3 +100,18 @@ def is_too_general(query: str, occupation_labels, max_labels=10):
     if len(matched) >= max_labels:
         return True
     return False
+
+def get_swedish_profession(query: str):
+    # 1. Сначала ищем точный матч
+    if query in MANUAL_FIX:
+        logging.info(f"Swedish translation for '{query}' found in MANUAL_FIX (exact match): {MANUAL_FIX[query]}")
+        return MANUAL_FIX[query]
+    # 2. Пробуем с тайтлкейсом (например, 'Accountant')
+    elif query.title() in MANUAL_FIX:
+        logging.info(f"Swedish translation for '{query}' found in MANUAL_FIX (title match): {MANUAL_FIX[query.title()]}")
+        return MANUAL_FIX[query.title()]
+    # 3. Если не нашли, используем генератор
+    else:
+        swedish = translate_en_to_sv(query)
+        logging.info(f"Swedish translation for '{query}' generated via translate_en_to_sv: {swedish}")
+        return swedish
