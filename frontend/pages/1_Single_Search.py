@@ -6,6 +6,9 @@ import streamlit as st
 import requests
 import os
 from dotenv import load_dotenv
+import altair as alt
+
+X_TICKS_STEP = 4
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8000")
@@ -129,28 +132,66 @@ if st.session_state["search_data"] is not None:
         index=0,
         horizontal=True
     )
+
     df = st.session_state["search_data"]
+
     if group_by == "Months":
-        # Convert "YYYY-WW" to the first day of the week, then extract month
+        # Convert ISO week to date, then extract month
         df["week_start"] = pd.to_datetime(df["week"] + "-1", format="%G-%V-%u")
         df["month"] = df["week_start"].dt.strftime("%Y-%m")
-        df_month = df.groupby("month", as_index=True)["count"].sum()
-        df_month = df_month.to_frame()
+
+        # Aggregate counts by month
+        df_month = df.groupby("month", as_index=False)["count"].sum()
         df_month["count"] = pd.to_numeric(df_month["count"], errors="coerce")
         df_month = df_month.dropna(subset=["count"])
-        st.bar_chart(df_month, use_container_width=True)
+
+        # Create label column: show only every 2nd label
+        df_month["x_label"] = df_month["month"]
+        df_month.loc[df_month.index % X_TICKS_STEP != 0, "x_label"] = ""  # Empty for odd indexes
+
+        # Build chart
+        chart = alt.Chart(df_month).mark_line().encode(
+                x=alt.X(
+                    "x_label:N",
+                    title="Month",
+                    axis=alt.Axis(labelAngle=45)  # Rotate X-axis labels
+                ),
+                y=alt.Y("count:Q", title="Number of Vacancies"),
+                tooltip=["month", "count"]
+            ).properties(
+                width='container',
+                height=400
+            )
+
+        st.altair_chart(chart, use_container_width=True)
         st.success(f'Found {df_month["count"].sum()} vacancies for "{st.session_state["last_query"]}" (by month)')
+
     else:
-        smooth = st.checkbox("Smooth (moving average, 3 weeks)", value=True)
+        # Smooth weekly counts
         window_size = 3
         df_plot = df[["week", "count"]].copy()
         df_plot["count"] = pd.to_numeric(df_plot["count"], errors="coerce")
         df_plot = df_plot.dropna(subset=["count"])
-        df_plot = df_plot.set_index("week")
-        if smooth:
-            df_plot["smoothed"] = df_plot["count"].rolling(window=window_size, min_periods=1, center=True).mean()
-            st.line_chart(df_plot[["smoothed"]], use_container_width=True)
-            st.success(f'Found {df_plot["count"].sum()} vacancies for "{st.session_state["last_query"]}" (by week, smoothed)')
-        else:
-            st.line_chart(df_plot[["count"]], use_container_width=True)
-            st.success(f'Found {df_plot["count"].sum()} vacancies for "{st.session_state["last_query"]}" (by week)')
+        df_plot["smoothed"] = df_plot["count"].rolling(window=window_size, min_periods=1, center=True).mean()
+        df_plot = df_plot.reset_index(drop=True)
+
+        # Create label column for x-axis
+        df_plot["x_label"] = df_plot["week"]
+        df_plot.loc[df_plot.index % X_TICKS_STEP != 0, "x_label"] = ""
+
+        # Build chart
+        chart = alt.Chart(df_plot).mark_line().encode(
+            x=alt.X(
+                "x_label:N", 
+                title="Week", 
+                axis=alt.Axis(labelAngle=45) # Rotate X-axis labels
+            ),  
+            y=alt.Y("smoothed:Q", title="Number of Vacancies"),
+            tooltip=["week", "smoothed"]
+        ).properties(
+            width='container',
+            height=400
+        )
+
+        st.altair_chart(chart, use_container_width=True)
+        st.success(f'Found {df_plot["count"].sum()} vacancies for "{st.session_state["last_query"]}" (by week, smoothed)')
