@@ -52,7 +52,7 @@ services:
       - ./frontend/.env
     depends_on:
       - backend
-    command: ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    command: ["streamlit", "run", "Home.py", "--server.port=8501", "--server.address=0.0.0.0"]
     ports:
       - "8501:8501"
     networks:
