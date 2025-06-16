@@ -42,12 +42,6 @@ def clean_translation(text: str) -> str:
             unique_words.append(w)
     return " ".join(unique_words)
 
-def get_argos_lang(code: str):
-    """
-    Returns the argostranslate language object for the given language code.
-    """
-    return next((lang for lang in argostranslate.translate.get_installed_languages() if lang.code == code), None)
-
 def translate_en_to_sv(text: str) -> str:
     manual = MANUAL_TRANSLATIONS.get(text.strip().lower())
     if manual:

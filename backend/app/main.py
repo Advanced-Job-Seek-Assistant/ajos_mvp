@@ -44,6 +44,7 @@ def db_check():
 
 @app.get("/search")
 def search(query: str, refined: bool = False):
+    logger.info(f"[USAGE] /search called | query='{query}' | refined={refined}")
     return search_query(query, refined)
 
 
@@ -54,7 +55,7 @@ def multi_search(queries: List[str] = Query(..., min_length=1, max_length=3), re
     If at least one query is too general (and not marked refined), returns suggestions for clarification.
     """
     start_total = time.time()
-    logger.info(f"Received /multi_search with queries: {queries} | refined: {refined}")
+    logger.info(f"[USAGE] /multi_search called | queries={queries} | refined={refined}")
 
     if not queries:
         logger.warning("No queries provided to /multi_search")
