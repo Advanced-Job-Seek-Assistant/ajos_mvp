@@ -1,5 +1,5 @@
 MANUAL_FIX = {
-    "Accountant": "Revisor",
+    "Accountant": "Redovisningsekonom",
     "Actor": "Skådespelare",
     "Administrative Assistant": "Administrativ assistent",
     "Animator": "Animator",
