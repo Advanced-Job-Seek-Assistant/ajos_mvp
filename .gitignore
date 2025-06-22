@@ -85,6 +85,11 @@ ipython_config.py
 # virtual environments
 frontend/ajos_mvp_frontend_env/
 backend/ajos_mvp_backend_env/
+db/ajos_db_env/
+
+# files
+backend/files/
+
 
 # pyenv
 #   For a library or package, you might want to ignore these files since the code is
