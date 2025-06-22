@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from app.db import get_connection
 from app.services import occupation_labels_sv
 from app.occupation_labels_loader import load_occupation_labels
-from app.services import search_query
+from app.services import search_query, query_preprocessing
 
 from app.logging_config import logger
 
@@ -44,7 +44,9 @@ def db_check():
 
 @app.get("/search")
 def search(query: str, refined: bool = False):
-    logger.info(f"[USAGE] /search called | query='{query}' | refined={refined}")
+    query = query_preprocessing(query)
+    logger.info("[USAGE] /search called")
+    logger.info(f"[QUERY] /search | query='{query}' | refined={refined}")
     return search_query(query, refined)
 
 
@@ -55,7 +57,8 @@ def multi_search(queries: List[str] = Query(..., min_length=1, max_length=3), re
     If at least one query is too general (and not marked refined), returns suggestions for clarification.
     """
     start_total = time.time()
-    logger.info(f"[USAGE] /multi_search called | queries={queries} | refined={refined}")
+    logger.info("[USAGE] /multi_search called")
+    logger.info(f"[QUERY] /multi_search | queries={queries} | refined={refined}")
 
     if not queries:
         logger.warning("No queries provided to /multi_search")

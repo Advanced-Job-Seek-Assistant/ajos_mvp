@@ -219,3 +219,8 @@ def search_query(query: str, refined: bool = False):
     except Exception as e:
         logger.exception(f"search_query: Unexpected error for query '{query}'")
         return {"error": str(e)}
+    
+
+def query_preprocessing(q: str, max_len: int = 200) -> str:
+    q = q.replace("\n", " ").replace("\r", " ")
+    return (q[:max_len] + "...") if len(q) > max_len else q
