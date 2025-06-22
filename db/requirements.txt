@@ -1,5 +1,10 @@
 psycopg2-binary==2.9.10
 pymongo==4.12.1
-python-dotenv
 tqdm
-pandas
+sentence-transformers==2.7.0
+transformers==4.40.1
+SQLAlchemy==2.0.30
+pandas==2.2.2
+numpy==1.26.4
+faiss-cpu==1.8.0
+python-dotenv==1.0.1
